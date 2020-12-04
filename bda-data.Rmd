@@ -1,0 +1,88 @@
+---
+title: "BDA - Project"
+author: "Nguyen Luong, Vinh Nguyen, Danh Phan"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '1'
+  html_document:
+    toc: yes
+    toc_depth: '1'
+    df_print: paged
+  word_document:
+    toc: yes
+    toc_depth: '1'
+---
+
+```{r}
+library(rstanarm)
+options(mc.cores = parallel::detectCores())
+library(loo)
+library(ggplot2)
+library(bayesplot)
+library(corrplot)
+```
+
+# 1. Data analysis
+
+```{r}
+train <- read.csv("train.csv", header = TRUE)
+```
+
+The data consist of numerical and non-numerical variables
+```{r}
+dim(train)
+str(train)
+```
+
+We will remove the Id property. As a consequence, the dataframe has 79 predictors and the target SalePrice variable.
+```{r}
+train_id <- train$Id
+train$Id <- NULL
+```
+
+```{r}
+numeric_train_predictors <- which(sapply(train, is.numeric)) 
+numeric_train <- train[, numeric_train_predictors]
+paste(length(train) - length(numeric_train_predictors), "non-numerical predictors were removed.", length(numeric_train_predictors), "numerical predictors are retained.")
+```
+
+```{r}
+MISSING_DATA_THRESHOLD <- 0.15
+CORRELATION_THRESHOLD <- 0.5
+
+# Remove all columns with > 15% missing values 
+missing_data_percentage <- apply(numeric_train, 
+                                 2, 
+                                 function(col)sum(is.na(col))/length(col) )
+missing_data_percentage <- sort(missing_data_percentage, decreasing=TRUE)
+
+predictors_to_delete_names <- names(which(sapply(missing_data_percentage, 
+                                                 function(value) abs(value) > MISSING_DATA_THRESHOLD 
+                                                 )))
+
+paste(predictors_to_delete_names, " was removed due to lack of data.")
+
+numeric_train <-numeric_train[, !names(numeric_train) %in% predictors_to_delete_names]
+
+# Fill mean of the column to missing fields.
+for(i in 1:ncol(numeric_train)){
+  numeric_train[is.na(numeric_train[,i]), i] <- mean(numeric_train[,i], na.rm = TRUE)
+}
+```
+
+```{r}
+cor_matrix <- cor(numeric_train)
+
+# Sort variables based on correlations, from high to low
+sorted_cor_saleprice <- sort(cor_matrix[, 'SalePrice'], decreasing=TRUE)
+
+# Select the variables which has high correlations
+high_cor_saleprice_names <- names(which(sapply(sorted_cor_saleprice, 
+                                               function(value) abs(value) > CORRELATION_THRESHOLD 
+                                               )))
+
+corrplot.mixed(cor_matrix[high_cor_saleprice_names, high_cor_saleprice_names],
+               tl.pos = "lt")
+```
+
