@@ -21,6 +21,7 @@ library(loo)
 library(ggplot2)
 library(bayesplot)
 library(corrplot)
+library(cowplot)
 ```
 
 # 1. Data analysis
@@ -42,36 +43,79 @@ train$Id <- NULL
 ```
 
 ```{r}
+MISSING_DATA_THRESHOLD <- 0.15
+CORRELATION_THRESHOLD <- 0.5
+
+# Remove all columns with > 15% missing values 
+missing_data_percentage <- apply(train, 
+                                 2, 
+                                 function(col)sum(is.na(col))/length(col) )
+missing_data_percentage <- sort(missing_data_percentage, decreasing=TRUE)
+
+print("Missing data percentage")
+print(missing_data_percentage)
+
+predictors_to_delete_names <- names(which(sapply(missing_data_percentage, 
+                                                 function(value) abs(value) > MISSING_DATA_THRESHOLD 
+                                                 )))
+
+print("These predictors were removed due to lack of more than 15% data.")
+print(predictors_to_delete_names)
+
+train <-train[, !names(train) %in% predictors_to_delete_names]
+```
+
+
+```{r}
+summary(numeric_train$SalePrice)
+```
+
+```{r}
+plot_neighborhood_cmd <- ggplot( data = train, aes(x = reorder(Neighborhood, SalePrice, FUN = median), 
+                                                   y = SalePrice)) +
+        geom_bar(stat = "summary", fun = "median", aes(fill = "#134D8A")) +
+        labs(x='Neighborhood', y='Median SalePrice') +
+        decorated_x_axis_labels +
+        common_y_axis +
+        geom_label(stat = "count", aes(label = ..count.., y = ..count..), size = 3) +
+        geom_hline(aes(yintercept = median(numeric_train$SalePrice), color = "#6D011E") ) +
+        scale_fill_identity(guide = "legend", label = "Neighborhood median saleprice", name = NULL) +
+        scale_color_identity(guide = "legend", label = "Median saleprice", name = NULL) + 
+        theme(legend.position = "bottom") +
+        guides(fill = guide_legend(order = 1),  color = guide_legend(order = 2))  
+
+plot_neighborhood_cmd
+```
+
+```{r}
 numeric_train_predictors <- which(sapply(train, is.numeric)) 
 numeric_train <- train[, numeric_train_predictors]
 paste(length(train) - length(numeric_train_predictors), "non-numerical predictors were removed.", length(numeric_train_predictors), "numerical predictors are retained.")
 ```
 
 ```{r}
-MISSING_DATA_THRESHOLD <- 0.15
-CORRELATION_THRESHOLD <- 0.5
-
-# Remove all columns with > 15% missing values 
-missing_data_percentage <- apply(numeric_train, 
-                                 2, 
-                                 function(col)sum(is.na(col))/length(col) )
-missing_data_percentage <- sort(missing_data_percentage, decreasing=TRUE)
-
-predictors_to_delete_names <- names(which(sapply(missing_data_percentage, 
-                                                 function(value) abs(value) > MISSING_DATA_THRESHOLD 
-                                                 )))
-
-paste(predictors_to_delete_names, " was removed due to lack of data.")
-
-numeric_train <-numeric_train[, !names(numeric_train) %in% predictors_to_delete_names]
-
 # Fill mean of the column to missing fields.
 for(i in 1:ncol(numeric_train)){
   numeric_train[is.na(numeric_train[,i]), i] <- mean(numeric_train[,i], na.rm = TRUE)
 }
 ```
 
+
 ```{r}
+common_x_axis <- scale_x_continuous(breaks= seq(0, 800000, by = 50000), labels = scales::comma)
+decorated_x_axis_labels <- theme(axis.text.x  = element_text(angle=45, hjust = 1))
+common_y_axis <- scale_y_continuous(breaks= seq(0, 800000, by = 50000), labels = scales::comma)
+
+plot_sale_price_cmd <- ggplot(data=numeric_train, aes(x = SalePrice))
+plot_sale_price_cmd <- plot_sale_price_cmd + geom_histogram(fill="#134D8A", binwidth = 10000) + common_x_axis + decorated_x_axis_labels
+
+plot_sale_price_cmd
+        
+```
+
+
+
+```{r, fig.width = 10, fig.height = 10}
 cor_matrix <- cor(numeric_train)
 
 # Sort variables based on correlations, from high to low
@@ -83,6 +127,25 @@ high_cor_saleprice_names <- names(which(sapply(sorted_cor_saleprice,
                                                )))
 
 corrplot.mixed(cor_matrix[high_cor_saleprice_names, high_cor_saleprice_names],
+               tl.col = "#134D8A",
                tl.pos = "lt")
 ```
+```{r, fig.width=15,fig.height=20}
 
+
+g1 <- ggplot(data=numeric_train, aes(x = OverallQual)) + geom_histogram(fill="#134D8A", binwidth = 1)
+g2 <- ggplot(data=numeric_train, aes(x = GrLivArea)) + geom_density(color="#134D8A")
+g3 <- ggplot(data=numeric_train, aes(x = GarageCars)) + geom_histogram(fill="#134D8A", binwidth = 1)
+g4 <- ggplot(data=numeric_train, aes(x = GarageArea)) + geom_density(color="#134D8A")
+g5 <- ggplot(data=numeric_train, aes(x = TotalBsmtSF)) + geom_density(color="#134D8A")
+g6 <- ggplot(data=numeric_train, aes(x = X1stFlrSF)) +geom_density(color="#134D8A")
+g7 <- ggplot(data=numeric_train, aes(x = FullBath)) + geom_histogram(fill="#134D8A", binwidth = 1)
+g8 <- ggplot(data=numeric_train, aes(x = TotRmsAbvGrd)) + geom_histogram(fill="#134D8A", binwidth = 1)
+g9 <- ggplot(data=numeric_train, aes(x = YearBuilt)) + geom_histogram(fill="#134D8A", binwidth = 5)
+g10 <- ggplot(data=numeric_train, aes(x = YearRemodAdd)) + geom_histogram(fill="#134D8A", binwidth = 1)
+
+plot_grid(
+  g1, g2, g7, g8, g9, g10, g3,g4, g5, g6,  ncol=2
+)
+
+```
