@@ -150,3 +150,11 @@ fits_4_ls <- lapply(priors, function(prior)
          data=train,family = gaussian(), prior=priors));
 loo(fits_2_ls[[1]],fits_2_ls[[2]], fits_2_ls[[3]], fits_2_ls[[4]])
 ```
+
+Load fit files
+```{r}
+load("fit1.rda")
+load("fit2.rda")
+load("fit3.rda")
+load("fit4.rda")
+```
