@@ -1,0 +1,152 @@
+---
+title: "main"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+root_dir <- "/home/luongn1/notebooks/BDA-Project-Data-Analysis"
+setwd(root_dir)
+
+library(bayesplot)
+library(ggplot2)
+library(brms)
+library(projpred)
+
+# Read csv
+data <- read.csv(file = 'train.csv')
+
+# Extract columns
+train <- data[, c('OverallQual', 'TotalBsmtSF', 'GrLivArea','Neighborhood', 'YearBuilt', 'SalePrice', 'YrSold','YearRemodAdd')]
+
+# Remove outliters
+train <- train[-c(524, 1299),]
+
+# Binning neighborhood based on there median price 
+train$NeighGroup[train$Neighborhood %in% c('StoneBr', 'NridgHt', 'NoRidge')] <- 1
+train$NeighGroup[train$Neighborhood %in% c('SawyerW', 'NWAmes', 'Gilbert', 'Blmngtn', 'CollgCr', 'Crawfor', 'ClearCr', 'Somerst', 'Veenker', 'Timber')] <- 2
+train$NeighGroup[train$Neighborhood %in% c('BrkSide', 'Edwards', 'OldTown', 'Sawyer', 'Blueste', 'SWISU', 'NPkVill', 'NAmes', 'Mitchel')] <- 3
+train$NeighGroup[train$Neighborhood %in% c('MeadowV', 'IDOTRR', 'BrDale')] <- 4
+
+# No binning
+train$NeighGroup <- as.numeric(as.factor(train$Neighborhood))
+
+# Combine ground living area and basement area
+train$TotalArea <- train$GrLivArea + train$TotalBsmtSF
+train$Age <-train$YrSold - train$YearRemodAdd
+```
+
+Prior choices: Assume a weakly informative prior, we employ the use of Student-t and Nromal distribution on various scales. The prior's choice will be justified later.
+
+```{r}
+studentt_prior_1 <- (prior("student_t(3,0,0.1)", class="b") + 
+                       prior("student_t(3,0,0.1)", class="sd", group="NeighGroup"))
+normal_prior_1 <- (prior("normal(0,0.1)", class="b") + 
+                       prior("normal(0,0.1)", class="sd", group="NeighGroup"))
+studentt_prior_2 <- (prior("student_t(3,0,1)", class="b") + 
+                       prior("student_t(3,0,1)", class="sd", group="NeighGroup"))
+normal_prior_2 <- (prior("normal(0,1)", class="b") + 
+                       prior("normal(0,1)", class="sd", group="NeighGroup"))
+priors <- list(studentt_prior_1, studentt_prior_2, normal_prior_1, normal_prior_2)
+```
+
+1. Baseline model: Predict SalePrice from with OverallQual using gaussian model.
+
+```{r}
+# Fit model
+fit1 <- brm(bf(SalePrice ~ OverallQual, sigma ~ OverallQual),
+            data = train, family = gaussian(), 
+            prior = prior("student_t(3,0,1)", class="b"),
+            file = "fit1")
+
+# Summary
+summary(fit1_st)
+summary(fit1_norm)
+
+# Convergence chain check
+plot(fit1_st)
+plot(fit1_norm)
+
+# Posterior predictive check
+pp_check(fit1_st)
+pp_check(fit1_norm)
+
+normal_prior_2 <-(prior("normal(0,1)", class="b") + prior("normal(0,1)", class=sd,
+                                                          group=Neighborhood))
+fit2_norm <- brm(bf(SalePrice ~ OverallQual + (OverallQual|Neighborhood)),
+            data = train, family = gaussian(), prior=normal_prior_2)
+
+```
+
+2. Group-level model: Overall Qual and Neighborhood
+
+```{r}
+
+fit2 <- brm(bf(log(SalePrice) ~ OverallQual + (OverallQual|NeighGroup)),
+            data = train, family = gaussian(), 
+            prior=studentt_prior_1,
+            chains = 4,
+            iter = 4000,
+            warmup = 2000,
+            cores = 4
+            )
+
+plot(fit2_st)
+plot(conditional_effects(fit2_st))
+pp_check(fit2_st)
+```  
+  
+3. Additive distributional model:
+```{r}
+
+fit3 <- brm(bf(log(SalePrice) ~ OverallQual + log(TotalArea) + (OverallQual|NeighGroup)),
+            data = train, family = gaussian(), 
+            prior= studentt_prior_1,
+            chains = 4,
+            iter = 4000,
+            warmup = 2000,
+            cores = 4)
+
+plot(fit3_st)
+plot(conditional_effects(fit3_st))
+pp_check(fit3_st)
+```  
+
+```{r}
+fit4 <- brm(bf(log(SalePrice) ~ OverallQual + log(TotalArea) + Age + (OverallQual|NeighGroup)),
+            data = train, family = gaussian(),
+            chains = 4,
+            warmup = 2000,
+            iter = 4000,
+            cores = 4,
+            prior= studentt_prior_1)
+```
+
+
+```{r}
+prior_nl <- prior(student_t(3,0,1), nlpar = "OverallQual") +
+  prior(student_t(3,0,1), nlpar = "TotalArea")+
+  prior(student_t(3,0,1), nlpar = "Age") +
+  prior(student_t(3,0,1), nlpar = "NeighGroup")
+
+fit5 <- brm(bf(log(SalePrice) ~ OverallQual + log(TotalArea) + Age + NeighGroup,
+               OverallQual + TotalArea + Age + NeighGroup ~ 1,
+               nl = TRUE),
+            data = train, 
+            family = gaussian(),
+            chains = 4,
+            warmup = 2000,
+            iter = 4000,
+            cores = 4,
+            prior=prior_nl,
+            control = list(adapt_delta=0.95),
+            file = "fit5_nl")
+```
+
+4. Prior sensitivity analysis:
+```{r}
+fits_4_ls <- lapply(priors, function(prior) 
+     brm(bf(log(SalePrice) ~ OverallQual + log(TotalArea) + Age + (OverallQual|NeighGroup)),
+         data=train,family = gaussian(), prior=priors));
+loo(fits_2_ls[[1]],fits_2_ls[[2]], fits_2_ls[[3]], fits_2_ls[[4]])
+```
